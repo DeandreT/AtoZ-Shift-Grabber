@@ -81,6 +81,115 @@
         return date.getUTCDay() === targetDay;
     }
 
+        // Check if the currently displayed day matches the target day
+    function isCurrentDisplayedDayTarget() {
+        const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const targetDayName = dayNames[targetDay];
+
+        // Look for the currently selected day card using multiple indicators
+        let selectedDayCard = document.querySelector('[data-test-id="day-card"][aria-label*="selected"]');
+
+        // If not found by aria-label, try by CSS class (the selected card has css-1csuo9h)
+        if (!selectedDayCard) {
+            selectedDayCard = document.querySelector('[data-test-id="day-card"].css-1csuo9h');
+        }
+
+        // If still not found, try by tabindex (selected cards have tabindex="0", others have tabindex="-1")
+        if (!selectedDayCard) {
+            selectedDayCard = document.querySelector('[data-test-id="day-card"][tabindex="0"]');
+        }
+
+        if (!selectedDayCard) {
+            console.log(`⚠️ Could not identify currently selected day card`);
+            return false;
+        }
+
+        const weekdayText = selectedDayCard.querySelector('[data-testid="DateText-WeekdayLong"]');
+        if (!weekdayText) return false;
+
+        const currentDayName = weekdayText.innerText.trim();
+        const isTarget = currentDayName === targetDayName;
+
+        console.log(`🔍 Current day: ${currentDayName}, Target day: ${targetDayName}, Match: ${isTarget}`);
+        return isTarget;
+    }
+
+    // Automatically switch to target day if needed
+    function ensureTargetDayIsSelected() {
+        if (isCurrentDisplayedDayTarget()) {
+            console.log(`✅ Already on target day: ${['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][targetDay]}`);
+            return true;
+        }
+
+        console.log(`🔄 Current day doesn't match target day, switching...`);
+
+        // Try to find and click the target day
+        if (clickDayCard(targetDay)) {
+            // Wait a bit for the page to update, then check again
+            setTimeout(() => {
+                if (isCurrentDisplayedDayTarget()) {
+                    console.log(`✅ Successfully switched to target day`);
+                } else {
+                    console.log(`⚠️ Failed to switch to target day, will retry on next check`);
+                }
+            }, 1000);
+            return false;
+        }
+
+        // If we couldn't find the day, try scrolling to find it
+        console.log(`🔄 Target day not found, attempting to scroll through day selector...`);
+        scrollToFindTargetDay();
+
+        return false;
+    }
+
+    // Scroll through day selector to find target day
+    function scrollToFindTargetDay() {
+        const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const targetDayName = dayNames[targetDay];
+
+        const leftChevron = document.querySelector('[data-test-id="left-chevron"]');
+        const rightChevron = document.querySelector('[data-test-id="right-chevron"]');
+
+        if (!leftChevron || !rightChevron) {
+            console.log(`⚠️ Could not find scroll buttons`);
+            return;
+        }
+
+        let scrollAttempts = 0;
+        const maxScrollAttempts = 10; // Prevent infinite scrolling
+
+        const attemptScroll = (direction) => {
+            if (scrollAttempts >= maxScrollAttempts) {
+                console.log(`⚠️ Max scroll attempts reached, could not find ${targetDayName}`);
+                return;
+            }
+
+            scrollAttempts++;
+            console.log(`🔄 Scroll attempt ${scrollAttempts}: scrolling ${direction}`);
+
+            // Click the appropriate chevron
+            if (direction === 'left') {
+                leftChevron.click();
+            } else {
+                rightChevron.click();
+            }
+
+            // Wait a bit for the scroll to complete, then check if we can find the target day
+            setTimeout(() => {
+                if (clickDayCard(targetDay)) {
+                    console.log(`✅ Found ${targetDayName} after scrolling ${direction}`);
+                } else {
+                    // Try scrolling in the same direction again
+                    setTimeout(() => attemptScroll(direction), 500);
+                }
+            }, 500);
+        };
+
+        // Start by trying to scroll right (forward in time)
+        attemptScroll('right');
+    }
+
     // Click "Stay Logged In" if modal appears
     function handleStayLoggedIn() {
         const modalBtn = Array.from(document.querySelectorAll('button, input[type="button"], [role="button"]'))
@@ -115,6 +224,54 @@
             });
         } else {
             Notification.requestPermission();
+        }
+    }
+
+    // Wait for an element to appear within a timeout
+    function waitForElement(selector, timeoutMs = 8000) {
+        return new Promise((resolve, reject) => {
+            const start = Date.now();
+
+            const check = () => {
+                const el = document.querySelector(selector);
+                if (el) return resolve(el);
+                if (Date.now() - start >= timeoutMs) return reject(new Error(`Timeout waiting for selector: ${selector}`));
+                requestAnimationFrame(check);
+            };
+
+            check();
+        });
+    }
+
+    // Wait for the success modal and dismiss it (click Done or Close)
+    async function waitForAndDismissSuccessModal(timeoutMs = 8000) {
+        try {
+            // Wait for the modal content to be present
+            await waitForElement('[data-test-id="AddOpportunityModalSuccess"]', timeoutMs);
+
+            // Prefer the Done button if available
+            const doneBtn = document.querySelector('[data-test-id="AddOpportunityModalSuccessDoneButton"]');
+            if (doneBtn) {
+                console.log('👉 Clicking Done on success modal');
+                doneBtn.click();
+            } else {
+                const closeBtn = document.querySelector('[data-test-component="ModalCloseButton"]');
+                if (closeBtn) {
+                    console.log('👉 Clicking Close on success modal');
+                    closeBtn.click();
+                }
+            }
+
+            // Wait for the modal to disappear
+            const start = Date.now();
+            while (document.querySelector('[data-test-id="AddOpportunityModalSuccess"]')) {
+                if (Date.now() - start > timeoutMs) break;
+                await new Promise(r => setTimeout(r, 50));
+            }
+            console.log('✅ Success modal dismissed');
+        } catch (err) {
+            // Modal might not show or timed out; continue
+            console.log('ℹ️ No success modal detected or timeout dismissing modal:', err.message || err);
         }
     }
 
@@ -272,6 +429,9 @@
                         try {
                             console.log(`👉 Auto-adding shift ${i + 1}/${shiftsToProcess}:`, shift.shiftText);
                             shift.addButton.click();
+
+                            // Wait for success modal and dismiss it to continue
+                            await waitForAndDismissSuccessModal();
                             processedCount++;
 
                             // Small delay between clicks to avoid overwhelming the system
@@ -304,6 +464,10 @@
                 } else if (autoAddShiftsEnabled) {
                     console.log(`👉 Auto-adding ${shiftPreference} shift:`, selectedShift.shiftText);
                     selectedShift.addButton.click();
+
+                    // Wait for success modal and dismiss it to continue
+                    await waitForAndDismissSuccessModal();
+
                     playBeep();
                     notifyUser(selectedShift.shiftText);
                 } else {
@@ -322,6 +486,19 @@
             location.reload();
         }
         setTimeout(autoRefreshLoop, getRandomInterval());
+    }
+
+    // Periodic check to ensure correct day is selected
+    function periodicDayCheck() {
+        try {
+            if (!isCurrentDisplayedDayTarget()) {
+                console.log(`🔄 Periodic check: Wrong day detected, switching to target day...`);
+                ensureTargetDayIsSelected();
+            }
+        } catch (e) {
+            console.log('⚠️ periodicDayCheck error:', e);
+        }
+        setTimeout(periodicDayCheck, 30000);
     }
 
     // Update button colors based on state
@@ -362,16 +539,32 @@
         const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
         const targetDayName = dayNames[dayIndex];
 
+        console.log(`🔍 Looking for day card: ${targetDayName}`);
+
+        // First try to find by weekday text
         const dayCards = document.querySelectorAll('[data-test-id="day-card"]');
         for (let card of dayCards) {
             const weekdayText = card.querySelector('[data-testid="DateText-WeekdayLong"]');
             if (weekdayText && weekdayText.innerText === targetDayName) {
                 console.log(`🔄 Clicking day card for ${targetDayName}`);
+
+                // Check if this card is already selected
+                const isSelected = card.getAttribute('aria-label')?.includes('selected') ||
+                                 card.classList.contains('css-1csuo9h');
+
+                if (isSelected) {
+                    console.log(`✅ ${targetDayName} is already selected`);
+                    return true;
+                }
+
+                // Click the card
                 card.click();
-                return;
+                return true;
             }
         }
+
         console.log(`⚠️ Could not find day card for ${targetDayName}`);
+        return false;
     }
 
     // Create control button
@@ -597,7 +790,8 @@
         addControls();
         setInterval(handleStayLoggedIn, 2000);
         setTimeout(autoRefreshLoop, getRandomInterval());
-
+        // Start periodic day check to keep the correct day selected
+        periodicDayCheck();
 
     }, 2000);
 
