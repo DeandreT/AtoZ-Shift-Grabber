@@ -419,18 +419,26 @@
                 console.log(`🔄 Processing ${shiftsToProcess} shifts (multiple shifts enabled)`);
 
                 let processedCount = 0;
-                for (let i = 0; i < shiftsToProcess; i++) {
-                    const shift = nonOverlappingShifts[i];
 
+                for (let i = 0; i < shiftsToProcess; i++) {
                     if (testModeEnabled) {
-                        highlightShift(shift.card, shift.shiftText);
+                        highlightShift(nonOverlappingShifts[i].card, nonOverlappingShifts[i].shiftText);
                         processedCount++;
                     } else if (autoAddShiftsEnabled) {
                         try {
-                            console.log(`👉 Auto-adding shift ${i + 1}/${shiftsToProcess}:`, shift.shiftText);
-                            shift.addButton.click();
+                            console.log(`👉 Auto-adding shift ${i + 1}/${shiftsToProcess}:`, nonOverlappingShifts[i].shiftText);
 
-                            // Wait for success modal and dismiss it to continue
+                            // 🔑 Re-query DOM for the current shift's button by its text
+                            const freshCard = Array.from(document.querySelectorAll('[data-testid^="OpportunityCard"]'))
+                                .find(card => (card.innerText || "").includes(nonOverlappingShifts[i].shiftText));
+                            const freshBtn = freshCard?.querySelector('button[data-test-id="AddOpportunityModalButton"]');
+
+                            if (!freshBtn) {
+                                console.log(`⚠️ Could not find fresh button for ${nonOverlappingShifts[i].shiftText}, skipping`);
+                                continue;
+                            }
+
+                            freshBtn.click();
                             await waitForAndDismissSuccessModal();
                             processedCount++;
 
